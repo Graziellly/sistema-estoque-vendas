@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+{% block title %}Relatórios - Sistema de Estoque{% endblock %}
+
+{% block content %}
+
+<div class="dashboard-cards">
+  <div class="dashboard-card card-blue">
+    <h3>Total de Produtos</h3>
+    <span>{{ total_produtos|default(0) }}</span>
+  </div>
+
+  <div class="dashboard-card card-green">
+    <h3>Estoque Normal</h3>
+    <span>{{ estoque_normal|default(0) }}</span>
+  </div>
+
+  <div class="dashboard-card card-red">
+    <h3>Estoque Baixo</h3>
+    <span>{{ estoque_baixo|default(0) }}</span>
+  </div>
+
+  <div class="dashboard-card card-purple">
+    <h3>Estoque Zerado</h3>
+    <span>{{ estoque_zerado|default(0) }}</span>
+  </div>
+</div>
+
+<div class="table-dashboard" style="margin-top: 18px;">
+  <h3>Gráficos</h3>
+
+  <div class="relatorios-grid">
+    <div class="card relatorio-card">
+      <h4 style="margin:0 0 10px;">Normal x Baixo x Zerado</h4>
+      <div class="chart-box">
+        <canvas id="pizza"></canvas>
+      </div>
+      <div id="pizzaMsg" class="chart-msg"></div>
+    </div>
+
+    <div class="card relatorio-card">
+      <h4 style="margin:0 0 10px;">Top Saídas</h4>
+      <div class="chart-box">
+        <canvas id="barras"></canvas>
+      </div>
+      <div id="barrasMsg" class="chart-msg">
+        {% if not top_labels or not top_values %}
+          Sem dados de saídas ainda.
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="table-dashboard" style="margin-top:18px;">
+  <h3>Top 5 produtos com mais saídas</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Produto</th>
+        <th>Qtd saídas</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% set labels = top_labels|default([]) %}
+      {% set values = top_values|default([]) %}
+
+      {% if labels and values %}
+        {% for i in range(labels|length) %}
+          <tr>
+            <td>{{ labels[i] }}</td>
+            <td>{{ values[i] }}</td>
+          </tr>
+        {% endfor %}
+      {% else %}
+        <tr>
+          <td colspan="2">Ainda não há saídas registradas.</td>
+        </tr>
+      {% endif %}
+    </tbody>
+  </table>
+</div>
+
+<div class="table-dashboard" style="margin-top:18px;">
+  <h3>Últimas movimentações</h3>
+  <table>
+    <thead>
+      <tr>
+        <th>Data</th>
+        <th>Produto</th>
+        <th>Tipo</th>
+        <th>Qtd</th>
+        <th>Motivo</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for m in (ultimos|default([])) %}
+      <tr>
+        <td>{{ m.data }}</td>
+        <td>{{ m.produto }}</td>
+        <td>{{ m.tipo }}</td>
+        <td>{{ m.quantidade }}</td>
+        <td>{{ m.motivo }}</td>
+      </tr>
+      {% else %}
+      <tr>
+        <td colspan="5">Nenhuma movimentação registrada ainda.</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+
+<script>
+const estoqueNormal = Number({{ estoque_normal | default(0) | tojson }}) || 0;
+const estoqueBaixo = Number({{ estoque_baixo | default(0) | tojson }}) || 0;
+const estoqueZerado = Number({{ estoque_zerado | default(0) | tojson }}) || 0;
+
+const topLabels = {{ top_labels | default([]) | tojson }} || [];
+const topValues = {{ top_values | default([]) | tojson }} || [];
+
+  function initCharts() {
+    if (typeof Chart === "undefined") {
+      console.error("Chart.js não carregou.");
+      return;
+    }
+
+    const elPizza = document.getElementById("pizza");
+    const elBarras = document.getElementById("barras");
+    const pizzaMsg = document.getElementById("pizzaMsg");
+    const barrasMsg = document.getElementById("barrasMsg");
+
+    const soma = estoqueNormal + estoqueBaixo + estoqueZerado;
+
+    if (elPizza) {
+      if (soma === 0) {
+        if (pizzaMsg) {
+          pizzaMsg.textContent = "Sem produtos cadastrados para gerar o gráfico.";
+        }
+      } else {
+        new Chart(elPizza, {
+          type: "pie",
+          data: {
+            labels: ["Normal", "Baixo", "Zerado"],
+            datasets: [{
+              data: [estoqueNormal, estoqueBaixo, estoqueZerado]
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false
+          }
+        });
+      }
+    }
+
+    const temTop = Array.isArray(topLabels)
+      && Array.isArray(topValues)
+      && topLabels.length > 0
+      && topValues.length > 0;
+
+    if (elBarras) {
+      if (!temTop) {
+        if (barrasMsg) {
+          barrasMsg.textContent = "Sem dados de saídas ainda.";
+        }
+      } else {
+        new Chart(elBarras, {
+          type: "bar",
+          data: {
+            labels: topLabels,
+            datasets: [{
+              label: "Top saídas",
+              data: topValues
+            }]
+          },
+          options: {
+            responsive: true,
+            maintainAspectRatio: false,
+            scales: {
+              y: {
+                beginAtZero: true
+              }
+            }
+          }
+        });
+      }
+    }
+  }
+
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", initCharts);
+  } else {
+    initCharts();
+  }
+</script>
+
+<style>
+  .relatorios-grid{
+    display:grid;
+    grid-template-columns: 1fr 1fr;
+    gap:16px;
+  }
+
+  .relatorio-card{
+    padding:14px;
+    border-radius:14px;
+  }
+
+  .chart-box{
+    position:relative;
+    width:100%;
+    height:320px;
+  }
+
+  .chart-msg{
+    margin-top:10px;
+    opacity:.8;
+    font-size:13px;
+  }
+
+  @media (max-width: 900px){
+    .relatorios-grid{
+      grid-template-columns:1fr;
+    }
+
+    .chart-box{
+      height:260px;
+    }
+  }
+</style>
+{% endblock %}

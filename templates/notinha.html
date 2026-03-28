@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Notinha</title>
+  <style>
+    body { font-family: Arial; width: 280px; margin: 0 auto; }
+    h2 { text-align: center; margin-bottom: 5px; }
+    .linha { border-top: 1px dashed #000; margin: 10px 0; }
+    .item { display: flex; justify-content: space-between; }
+    @media print {
+      button { display: none; }
+    }
+  </style>
+</head>
+<body>
+
+<h2>SUA LOJA</h2>
+<p style="text-align:center;">Recibo de Venda</p>
+
+<div class="linha"></div>
+
+<p><b>Venda:</b> {{ venda.id }}</p>
+<p><b>Data:</b> {{ venda.criado_em.strftime("%d/%m/%Y %H:%M") }}</p>
+<p><b>Pagamento:</b> {{ venda.forma_pagamento.upper() }}</p>
+
+<div class="linha"></div>
+
+{% for i in itens %}
+  <div class="item">
+    <span>{{ i.nome_produto }} x{{ i.quantidade }}</span>
+    <span>R$ {{ "%.2f"|format(i.subtotal) }}</span>
+  </div>
+{% endfor %}
+
+<div class="linha"></div>
+
+<p><b>Total:</b> R$ {{ "%.2f"|format(venda.total) }}</p>
+
+{% if venda.forma_pagamento == "dinheiro" %}
+<p><b>Recebido:</b> R$ {{ "%.2f"|format(venda.valor_recebido) }}</p>
+<p><b>Troco:</b> R$ {{ "%.2f"|format(venda.troco) }}</p>
+{% endif %}
+
+<div class="linha"></div>
+
+<p style="text-align:center;">Obrigado pela preferência!</p>
+
+<button onclick="window.print()">🧾 Imprimir</button>
+
+</body>
+</html>

@@ -1,0 +1,598 @@
+{% extends "base.html" %}
+{% block title %}PDV | Venda por EAN{% endblock %}
+
+{% block content %}
+<div class="pdv">
+  <div class="pdv-left">
+
+    <div class="card-pdv">
+      <div class="card-pdv-title">
+        <h2>Venda (PDV)</h2>
+        <p>Leitor de código de barras → Enter → item entra no carrinho automaticamente.</p>
+      </div>
+
+      <div class="pdv-scan">
+        <div class="pdv-scan-row">
+          <div class="pdv-field">
+            <label>EAN</label>
+            <input id="eanInput" type="text" placeholder="Bipe o código de barras..." autofocus />
+            <small>Dica: clique em qualquer lugar e continue bipando.</small>
+          </div>
+
+          <div class="pdv-field">
+            <label>Qtd (opcional)</label>
+            <input id="qtdInput" type="number" min="1" value="1" />
+            <small>Se o mesmo item repetir, ele soma.</small>
+          </div>
+        </div>
+
+        <div id="pdvMsg" class="pdv-msg" style="display:none;"></div>
+      </div>
+    </div>
+
+    <div class="card-pdv">
+      <div class="pdv-table-wrap">
+        <table class="pdv-table">
+          <thead>
+            <tr>
+              <th>Produto</th>
+              <th style="width:120px;">Preço</th>
+              <th style="width:160px;">Quantidade</th>
+              <th style="width:130px;">Subtotal</th>
+              <th style="width:70px;"></th>
+            </tr>
+          </thead>
+          <tbody id="cartBody">
+            <tr class="pdv-empty">
+              <td colspan="5">Carrinho vazio. Bipe um EAN.</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="pdv-right">
+    <div class="pdv-total-card">
+      <div class="pdv-total-line">
+        <span>Total</span>
+        <strong id="totalValue">R$ 0,00</strong>
+      </div>
+
+      <div class="pdv-pay">
+        <label>Pagamento</label>
+        <select id="payMethod">
+          <option value="pix">PIX</option>
+          <option value="cartao">Cartão</option>
+          <option value="dinheiro">Dinheiro</option>
+        </select>
+
+        <div id="moneyBox" style="display:none;">
+          <label>Valor recebido</label>
+          <input id="moneyReceived" type="number" step="0.01" placeholder="0,00">
+          <div class="pdv-troco" id="trocoBox" style="display:none;"></div>
+        </div>
+
+        <button class="pdv-finish" id="btnFinish" type="button">Finalizar venda</button>
+        <button class="pdv-clear" id="btnClear" type="button">Limpar carrinho</button>
+
+        <div class="pdv-shortcuts">
+          <small><b>Atalhos:</b> Enter = adicionar | F9 = finalizar | ESC = limpar</small>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- MODAL PIX -->
+<div id="pixModal" class="modal-overlay" onclick="fecharPixModal(event)">
+  <div class="modal-card">
+    <div class="modal-header">
+      <h3>Pagamento PIX</h3>
+      <button type="button" class="modal-close" onclick="fecharPixModal()">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <p>Faça o pagamento para continuar</p>
+
+      <div id="pixTotal">R$ 0,00</div>
+
+      <div class="pix-qr-wrap">
+        <img id="pixQrImg" alt="QR Code PIX" style="display:none; max-width:220px; margin:0 auto 16px;">
+      </div>
+
+      <div class="pix-code-wrap">
+        <label class="pix-label">Código PIX</label>
+        <div id="pixCodigo">PIX-FAKE</div>
+      </div>
+
+      <button type="button" class="btn btn-editar" onclick="copiarPix()">
+        Copiar código PIX
+      </button>
+    </div>
+
+    <div class="modal-actions">
+      <button type="button" class="btn btn-cancelar" onclick="fecharPixModal()">Cancelar</button>
+      <button type="button" class="btn btn-salvar" id="confirmarPixBtn">Já paguei</button>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+  if (window.__PDV_V3_INITED__) {
+    console.warn("⚠️ PDV V3 já inicializado. Tem script duplicado.");
+  } else {
+    window.__PDV_V3_INITED__ = true;
+
+    document.addEventListener("submit", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+    }, true);
+
+    const eanInput = document.getElementById("eanInput");
+    const qtdInput = document.getElementById("qtdInput");
+    const cartBody = document.getElementById("cartBody");
+    const totalValue = document.getElementById("totalValue");
+    const pdvMsg = document.getElementById("pdvMsg");
+    const payMethod = document.getElementById("payMethod");
+    const moneyBox = document.getElementById("moneyBox");
+    const moneyReceived = document.getElementById("moneyReceived");
+    const trocoBox = document.getElementById("trocoBox");
+    const pixModal = document.getElementById("pixModal");
+    const pixCodigo = document.getElementById("pixCodigo");
+    const pixTotal = document.getElementById("pixTotal");
+    const confirmarPixBtn = document.getElementById("confirmarPixBtn");
+
+    if (!eanInput || !cartBody || !totalValue || !payMethod) {
+      alert("⚠️ PDV: IDs não encontrados. Você está abrindo outro HTML ou IDs diferentes.");
+      console.error("IDs faltando:", { eanInput, cartBody, totalValue, payMethod });
+      throw new Error("PDV: elementos obrigatórios não encontrados.");
+    }
+
+    const CART_KEY = "pdv_cart_V3";
+    let cart = [];
+    let isAdding = false;
+    let ultimoPixTxid = null;
+
+    function saveCart() {
+      try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch(e) {}
+    }
+
+    function loadCart() {
+      try {
+        const raw = localStorage.getItem(CART_KEY);
+        cart = raw ? JSON.parse(raw) : [];
+        if (!Array.isArray(cart)) cart = [];
+      } catch(e) {
+        cart = [];
+      }
+      return cart;
+    }
+
+    function clearCart() {
+      cart = [];
+      try { localStorage.removeItem(CART_KEY); } catch(e) {}
+    }
+
+    function moneyBR(v) {
+      return Number(v || 0).toLocaleString("pt-BR", {
+        style: "currency",
+        currency: "BRL"
+      });
+    }
+
+    function focusEAN(select = false) {
+      setTimeout(() => {
+        if (!eanInput) return;
+        eanInput.focus();
+        if (select) eanInput.select();
+      }, 10);
+    }
+
+    function showMsg(text, ok = true) {
+      if (!pdvMsg) return;
+      pdvMsg.style.display = "block";
+      pdvMsg.className = "pdv-msg " + (ok ? "ok" : "err");
+      pdvMsg.textContent = text;
+      setTimeout(() => {
+        pdvMsg.style.display = "none";
+      }, 2500);
+    }
+
+    function recalc() {
+      const total = cart.reduce((acc, it) => acc + (Number(it.preco) * Number(it.qtd)), 0);
+      totalValue.textContent = moneyBR(total);
+
+      if (payMethod.value === "dinheiro") {
+        const vr = parseFloat((moneyReceived && moneyReceived.value) || "0");
+        const troco = vr - total;
+
+        if (vr > 0) {
+          if (trocoBox) {
+            trocoBox.style.display = "block";
+            trocoBox.textContent = troco >= 0
+              ? `Troco: ${moneyBR(troco)}`
+              : `Falta: ${moneyBR(Math.abs(troco))}`;
+          }
+        } else {
+          if (trocoBox) trocoBox.style.display = "none";
+        }
+      } else {
+        if (trocoBox) trocoBox.style.display = "none";
+      }
+    }
+
+    function render() {
+      loadCart();
+      cartBody.innerHTML = "";
+
+      if (cart.length === 0) {
+        cartBody.innerHTML = `<tr class="pdv-empty"><td colspan="5">Carrinho vazio. Bipe um EAN.</td></tr>`;
+        recalc();
+        return;
+      }
+
+      cart.forEach((it, idx) => {
+        const tr = document.createElement("tr");
+        tr.innerHTML = `
+          <td>
+            <div class="pdv-prod">
+              <strong>${it.nome}</strong>
+              <small>EAN: ${it.ean || "-"}</small>
+            </div>
+          </td>
+          <td>${moneyBR(it.preco)}</td>
+          <td>
+            <div class="pdv-qtd">
+              <button type="button" data-act="dec" data-idx="${idx}">-</button>
+              <input type="number" min="1" value="${it.qtd}" data-act="set" data-idx="${idx}">
+              <button type="button" data-act="inc" data-idx="${idx}">+</button>
+            </div>
+          </td>
+          <td>${moneyBR(Number(it.preco) * Number(it.qtd))}</td>
+          <td><button class="pdv-remove" type="button" data-act="rm" data-idx="${idx}">✕</button></td>
+        `;
+        cartBody.appendChild(tr);
+      });
+
+      recalc();
+    }
+
+    function fecharPixModal(e) {
+      if (!pixModal) return;
+      if (!e || e.target === pixModal) {
+        pixModal.classList.remove("show");
+      }
+    }
+
+    function copiarPix() {
+      const texto = pixCodigo?.textContent || "";
+      if (!texto) return;
+
+      navigator.clipboard.writeText(texto)
+        .then(() => showMsg("Código PIX copiado!", true))
+        .catch(() => showMsg("Não foi possível copiar o código PIX.", false));
+    }
+
+    window.fecharPixModal = fecharPixModal;
+    window.copiarPix = copiarPix;
+
+    cartBody.addEventListener("click", (e) => {
+      const btn = e.target.closest("button");
+      if (!btn) return;
+
+      loadCart();
+
+      const act = btn.dataset.act;
+      const idx = parseInt(btn.dataset.idx, 10);
+      if (Number.isNaN(idx) || !cart[idx]) return;
+
+      if (act === "inc") cart[idx].qtd = Number(cart[idx].qtd) + 1;
+      if (act === "dec") cart[idx].qtd = Math.max(1, Number(cart[idx].qtd) - 1);
+      if (act === "rm") cart.splice(idx, 1);
+
+      if (cart.length === 0) clearCart();
+      else saveCart();
+
+      render();
+      focusEAN(false);
+    });
+
+    cartBody.addEventListener("change", (e) => {
+      const inp = e.target;
+      if (inp.dataset.act !== "set") return;
+
+      loadCart();
+
+      const idx = parseInt(inp.dataset.idx, 10);
+      if (Number.isNaN(idx) || !cart[idx]) return;
+
+      const v = parseInt(inp.value || "1", 10);
+      cart[idx].qtd = Math.max(1, v);
+
+      saveCart();
+      render();
+      focusEAN(false);
+    });
+
+    async function addByEan(ean, qtd) {
+      if (isAdding) return;
+      isAdding = true;
+
+      try {
+        loadCart();
+
+        const r = await fetch(`/api/produto_por_ean?ean=${encodeURIComponent(ean)}`);
+        const j = await r.json().catch(() => ({}));
+
+        if (!r.ok || !j.ok) {
+          showMsg(j.msg || "Produto não encontrado", false);
+          return;
+        }
+
+        const p = j.produto;
+        const preco = parseFloat(p.preco || 0);
+
+        const found = cart.find(it => Number(it.produto_id) === Number(p.id));
+        if (found) {
+          found.qtd = Number(found.qtd) + qtd;
+        } else {
+          cart.push({
+            produto_id: Number(p.id),
+            nome: p.nome,
+            preco: preco,
+            qtd: qtd,
+            ean: p.ean
+          });
+        }
+
+        saveCart();
+        render();
+        showMsg(`Adicionado: ${p.nome}`, true);
+
+      } catch (err) {
+        console.error(err);
+        showMsg("Erro ao buscar produto (conexão).", false);
+      } finally {
+        isAdding = false;
+      }
+    }
+
+    async function finalizarVendaNormal(payload) {
+      const r = await fetch("/api/finalizar_venda", {
+        method: "POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify(payload)
+      });
+
+      const j = await r.json().catch(() => ({}));
+
+      if (!r.ok || !j.ok) {
+        showMsg(j.msg || "Erro ao finalizar venda.", false);
+        return;
+      }
+
+      showMsg(
+        `Venda finalizada! Total ${moneyBR(j.total)}${
+          j.troco != null ? " | Troco " + moneyBR(j.troco) : ""
+        }`,
+        true
+      );
+
+      clearCart();
+      if (moneyReceived) moneyReceived.value = "";
+      render();
+
+      if (j.redirect) {
+        setTimeout(() => {
+          window.location.href = j.redirect;
+        }, 800);
+      } else {
+        setTimeout(() => location.reload(), 1200);
+      }
+    }
+
+    async function finalizar() {
+  if (!cart.length) {
+    showMsg("Carrinho vazio", false);
+    return;
+  }
+
+const forma = payMethod.value;
+
+  const payload = {
+    forma_pagamento: forma,
+    valor_recebido: forma === "dinheiro" ? Number(moneyReceived.value || 0) : null,
+    carrinho: cart.map(item => ({
+      produto_id: item.produto_id,
+      qtd: item.qtd,
+      preco: item.preco
+    }))
+  };
+
+  if (forma === "pix") {
+  showMsg("Gerando PIX...", true);
+  
+
+  try {
+    const r = await fetch("/api/criar_pix", {
+      method: "POST",
+      headers: {"Content-Type":"application/json"},
+      body: JSON.stringify(payload)
+    });
+
+    const j = await r.json().catch(() => ({}));
+
+    console.log("PIX RESPONSE:", j);
+
+    if (!r.ok || !j.ok) {
+      showMsg(j.msg || "Erro ao gerar PIX", false);
+      return;
+    }
+
+    ultimoPixTxid = j.txid;
+
+    // 🔥 MOSTRAR MODAL
+    pixModal.classList.add("show");
+
+    // 💰 TOTAL
+    pixTotal.textContent = moneyBR(j.total || 0);
+
+    // 📄 CÓDIGO PIX
+    pixCodigo.textContent = j.pix_copia_cola || j.qrcode || "PIX não disponível";
+
+    // 🧠 QR CODE
+    const qrImg = document.getElementById("pixQrImg");
+
+    if (qrImg && j.qr_code_base64) {
+      qrImg.src = "data:image/png;base64," + j.qr_code_base64;
+      qrImg.style.display = "block";
+    } else if (qrImg) {
+      qrImg.style.display = "none";
+    }
+
+    showMsg("Aguardando pagamento PIX...", true);
+    return;
+
+  } catch (e) {
+    console.error(e);
+    showMsg("Erro ao gerar PIX", false);
+    return;
+  }
+}
+
+  await finalizarVendaNormal(payload);
+}
+
+    eanInput.addEventListener("keydown", async (e) => {
+      if (e.key !== "Enter") return;
+      e.preventDefault();
+
+      const ean = (eanInput.value || "").trim();
+      let qtd = parseInt((qtdInput && qtdInput.value) || "1", 10);
+
+      if (!ean) return;
+      if (!qtd || qtd < 1) qtd = 1;
+
+      eanInput.value = "";
+      if (qtdInput) qtdInput.value = "1";
+
+      await addByEan(ean, qtd);
+      focusEAN(false);
+    });
+
+    payMethod.addEventListener("change", () => {
+      if (moneyBox) moneyBox.style.display = payMethod.value === "dinheiro" ? "block" : "none";
+      if (trocoBox) trocoBox.style.display = "none";
+      if (moneyReceived) moneyReceived.value = "";
+      recalc();
+    });
+
+    if (moneyReceived) {
+      moneyReceived.addEventListener("input", recalc);
+    }
+
+    document.addEventListener("keydown", (e) => {
+      if (e.key === "F9") {
+        e.preventDefault();
+        document.getElementById("btnFinish")?.click();
+      }
+
+      if (e.key === "Escape") {
+        if (pixModal?.classList.contains("show")) {
+          fecharPixModal();
+          return;
+        }
+        e.preventDefault();
+        document.getElementById("btnClear")?.click();
+      }
+    });
+
+    const btnClear = document.getElementById("btnClear");
+    if (btnClear) {
+      btnClear.addEventListener("click", () => {
+        clearCart();
+        render();
+        showMsg("Carrinho limpo.", true);
+        focusEAN(false);
+      });
+    }
+
+const btnFinish = document.getElementById("btnFinish");
+if (btnFinish) {
+  btnFinish.addEventListener("click", finalizar);
+}
+
+if (confirmarPixBtn){
+  confirmarPixBtn.addEventListener("click", async () => {
+    if (!ultimoPixTxid) {
+      showMsg("Nenhum PIX pendente encontrado.", false);
+      return;
+    }
+
+    try {
+      const r = await fetch("/api/confirmar_pix/" + ultimoPixTxid, {
+        method: "POST"
+      });
+
+      const j = await r.json().catch(() => ({}));
+
+      if (!r.ok || !j.ok) {
+        showMsg(j.msg || "Erro ao confirmar PIX.", false);
+        return;
+      }
+
+      fecharPixModal();
+showMsg("Pagamento aprovado!", true);
+
+clearCart();
+if (moneyReceived) moneyReceived.value = "";
+render();
+focusEAN(false);
+
+if (j.redirect) {
+  setTimeout(() => {
+    window.location.href = j.redirect;
+  }, 800);
+}
+
+    } catch (e) {
+      console.error(e);
+      showMsg("Erro ao confirmar pagamento PIX.", false);
+    }
+  });
+}
+
+    document.addEventListener("click", (e) => {
+      const ignorarAutoFocus = e.target.closest(
+        "select, option, button, input, .pdv-qtd, .pdv-remove, #payMethod, #moneyReceived, #btnFinish, #btnClear, #pixModal"
+      );
+
+      if (ignorarAutoFocus) return;
+      focusEAN(false);
+    });
+
+    window.addEventListener("focus", () => {
+      setTimeout(() => {
+        const ativo = document.activeElement;
+        const emCampoInterativo =
+          ativo &&
+          (ativo.matches("select, input, button, textarea") || ativo.closest(".pdv-qtd"));
+
+        if (!emCampoInterativo && !(pixModal?.classList.contains("show"))) {
+          focusEAN(false);
+        }
+      }, 120);
+    });
+
+    loadCart();
+    if (moneyBox) moneyBox.style.display = payMethod.value === "dinheiro" ? "block" : "none";
+    render();
+    focusEAN(false);
+  }
+
+</script>
+{% endblock %}

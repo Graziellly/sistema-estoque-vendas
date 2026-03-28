@@ -1,0 +1,219 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="produto-detalhe">
+
+  <!-- CABEÇALHO -->
+  <div class="produto-topo">
+    <div>
+      <h2 class="produto-titulo">{{ produto.nome }}</h2>
+
+      <div class="produto-sub">
+        {% if produto.sku %}
+          <span class="chip">SKU: {{ produto.sku }}</span>
+        {% endif %}
+        {% if produto.ean %}
+          <span class="chip">EAN: {{ produto.ean }}</span>
+        {% endif %}
+        {% if produto.categoria %}
+          <span class="chip">Categoria: {{ produto.categoria }}</span>
+        {% endif %}
+        {% if produto.unidade %}
+          <span class="chip">Unidade: {{ produto.unidade }}</span>
+        {% endif %}
+      </div>
+    </div>
+
+    <a class="btn btn-voltar" href="{{ url_for('dashboard') }}">⬅ Voltar</a>
+  </div>
+
+  <!-- STATUS -->
+  <div class="produto-status">
+    <div class="status-card">
+      <h4>Estoque Atual</h4>
+      <div class="big-number">{{ produto.quantidade }}</div>
+      <small>Unidade: {{ produto.unidade or "un" }}</small>
+    </div>
+
+    <div class="status-card">
+      <h4>Estoque Mínimo</h4>
+      <div class="big-number">{{ produto.minimo }}</div>
+      <small>Alerta abaixo disso</small>
+    </div>
+
+    <div class="status-card {% if produto.quantidade <= produto.minimo %}danger{% else %}ok{% endif %}">
+      <h4>Status</h4>
+      {% if produto.quantidade <= produto.minimo %}
+        <div class="badge danger">⚠ ESTOQUE BAIXO</div>
+        <small>Recomendado repor</small>
+      {% else %}
+        <div class="badge ok">✅ ESTOQUE NORMAL</div>
+        <small>Tudo certo</small>
+      {% endif %}
+    </div>
+  </div>
+
+  <!-- MOVIMENTAÇÃO -->
+  <div class="mov-grid">
+
+    <!-- ENTRADA -->
+    <div class="mov-card">
+      <h3>➕ Entrada de Estoque</h3>
+      <p>Quando chega mercadoria (reposição)</p>
+
+      <form method="POST" action="{{ url_for('movimentar', id=produto.id) }}" class="mov-form">
+        <input type="hidden" name="tipo" value="ENTRADA">
+
+        <label>Quantidade</label>
+        <input type="number" name="quantidade" min="1" required placeholder="Ex: 10">
+
+        <label>Motivo</label>
+        <select name="motivo">
+          <option value="reposicao">Reposição</option>
+          <option value="compra">Compra</option>
+          <option value="devolucao">Devolução</option>
+          <option value="ajuste">Ajuste</option>
+        </select>
+
+        <button type="submit" class="btn btn-entrada">Registrar Entrada</button>
+      </form>
+    </div>
+
+    <!-- SAÍDA -->
+    <div class="mov-card">
+      <h3>➖ Saída de Estoque</h3>
+      <p>Baixar quantidade (venda, perda, avaria...)</p>
+
+      <form method="POST" action="{{ url_for('movimentar', id=produto.id) }}" class="mov-form">
+        <input type="hidden" name="tipo" value="SAIDA">
+
+        <label>Quantidade</label>
+        <input type="number" name="quantidade" min="1" required placeholder="Ex: 3">
+
+        <label>Motivo</label>
+        <select name="motivo">
+          <option value="venda">Venda</option>
+          <option value="perda">Perda</option>
+          <option value="avaria">Avaria</option>
+          <option value="ajuste">Ajuste</option>
+        </select>
+
+        <button type="submit" class="btn btn-saida">Registrar Saída</button>
+      </form>
+    </div>
+
+  </div>
+
+  <!-- HISTÓRICO -->
+  <div class="historico-card">
+    <h3>📜 Histórico de Movimentações</h3>
+
+    {% if historico and historico|length > 0 %}
+      <div class="historico-table">
+        <table>
+          <thead>
+            <tr>
+              <th>Data</th>
+              <th>Tipo</th>
+              <th>Qtd</th>
+              <th>Motivo</th>
+              <th>Antes</th>
+              <th>Depois</th>
+              <th>Obs</th>
+            </tr>
+          </thead>
+
+          <tbody>
+            {% for h in historico %}
+              <tr class="{% if h.tipo == 'SAIDA' %}row-saida{% elif h.tipo == 'ENTRADA' %}row-entrada{% else %}row-edit{% endif %}">
+                <td>{{ h.criado_em.strftime("%d/%m/%Y %H:%M") if h.criado_em else "-" }}</td>
+                <td>
+                  {% if h.tipo == "ENTRADA" %}
+                    <span class="tag entrada">ENTRADA</span>
+                  {% elif h.tipo == "SAIDA" %}
+                    <span class="tag saida">SAÍDA</span>
+                  {% elif h.tipo == "ADD" %}
+                    <span class="tag add">CADASTRO</span>
+                  {% elif h.tipo == "EDIT" %}
+                    <span class="tag edit">EDIÇÃO</span>
+                  {% elif h.tipo == "EXCLUIR" %}
+                    <span class="tag exclui">EXCLUIR</span>
+                  {% else %}
+                    <span class="tag edit">{{ h.tipo }}</span>
+                  {% endif %}
+                </td>
+
+                <td>{{ h.quantidade }}</td>
+                <td>{{ h.motivo or "-" }}</td>
+                <td>{{ h.antes if h.antes is not none else "-" }}</td>
+                <td>{{ h.depois if h.depois is not none else "-" }}</td>
+                <td>{{ h.obs or "-" }}</td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+    {% else %}
+      <p style="opacity:.7;margin-top:10px;">Sem movimentações registradas ainda.</p>
+    {% endif %}
+  </div>
+
+</div>
+
+
+<!-- CSS (pode colar no seu style.css também, mas aqui funciona direto) -->
+<style>
+  .produto-detalhe{display:flex;flex-direction:column;gap:18px}
+  .produto-topo{display:flex;align-items:flex-start;justify-content:space-between;gap:12px}
+  .produto-titulo{margin:0;font-size:26px}
+  .produto-sub{margin-top:10px;display:flex;flex-wrap:wrap;gap:8px}
+  .chip{padding:6px 10px;border-radius:10px;background:rgba(255,255,255,.08);border:1px solid rgba(255,255,255,.08);font-size:12px}
+
+  .produto-status{display:grid;grid-template-columns:repeat(3,1fr);gap:12px}
+  .status-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:14px}
+  .status-card.danger{border-color:rgba(255,0,0,.35);background:rgba(255,0,0,.08)}
+  .status-card.ok{border-color:rgba(0,200,120,.35);background:rgba(0,200,120,.08)}
+  .big-number{font-size:30px;font-weight:800;margin-top:6px}
+  .badge{display:inline-block;margin-top:8px;padding:6px 10px;border-radius:999px;font-weight:700;font-size:12px}
+  .badge.danger{background:rgba(255,0,0,.18);border:1px solid rgba(255,0,0,.25)}
+  .badge.ok{background:rgba(0,200,120,.16);border:1px solid rgba(0,200,120,.25)}
+
+  .mov-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:12px}
+  .mov-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px}
+  .mov-card h3{margin:0 0 6px 0}
+  .mov-card p{margin:0 0 12px 0;opacity:.75}
+
+  .mov-form{display:flex;flex-direction:column;gap:10px}
+  .mov-form input,.mov-form select{
+    padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,.10);
+    background:rgba(0,0,0,.18);color:inherit;outline:none
+  }
+  .btn{border:none;border-radius:12px;padding:10px 12px;cursor:pointer;font-weight:700}
+  .btn-voltar{display:inline-block;text-decoration:none}
+  .btn-entrada{background:rgba(0,200,120,.20);border:1px solid rgba(0,200,120,.35)}
+  .btn-saida{background:rgba(255,80,80,.18);border:1px solid rgba(255,80,80,.35)}
+
+  .historico-card{background:rgba(255,255,255,.06);border:1px solid rgba(255,255,255,.08);border-radius:14px;padding:16px}
+  .historico-table{overflow:auto;border-radius:12px}
+  table{width:100%;border-collapse:collapse}
+  th,td{padding:10px 10px;border-bottom:1px solid rgba(255,255,255,.08);text-align:left;font-size:13px}
+  th{opacity:.8}
+
+  .tag{padding:4px 8px;border-radius:999px;font-weight:800;font-size:11px;display:inline-block}
+  .tag.entrada{background:rgba(0,200,120,.18);border:1px solid rgba(0,200,120,.25)}
+  .tag.saida{background:rgba(255,80,80,.16);border:1px solid rgba(255,80,80,.25)}
+  .tag.add{background:rgba(70,150,255,.16);border:1px solid rgba(70,150,255,.25)}
+  .tag.edit{background:rgba(255,200,0,.14);border:1px solid rgba(255,200,0,.22)}
+  .tag.exclui{background:rgba(255,0,0,.12);border:1px solid rgba(255,0,0,.18)}
+
+  .row-entrada td{background:rgba(0,200,120,.04)}
+  .row-saida td{background:rgba(255,80,80,.04)}
+  .row-edit td{background:rgba(255,200,0,.03)}
+
+  @media(max-width:900px){
+    .produto-status{grid-template-columns:1fr}
+    .mov-grid{grid-template-columns:1fr}
+  }
+</style>
+
+{% endblock %}

@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Sistema de Estoque{% endblock %}</title>
+  <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+
+<body>
+
+  <!-- TOPO -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="brand-box" aria-hidden="true">📦</div>
+      <div class="brand-title">Sistema de Estoque</div>
+    </div>
+
+    <div class="top-actions">
+
+      <div
+        class="theme-wrap"
+        id="themeWrap"
+        role="button"
+        tabindex="0"
+        aria-haspopup="true"
+        aria-expanded="false"
+      >
+        <span class="theme-icon" id="themeIcon">🌙</span>
+        <span class="theme-label" id="themeLabel">Premium</span>
+        <span class="theme-caret" aria-hidden="true"></span>
+
+        <div class="theme-menu" id="themeMenu" role="menu">
+          <button type="button" class="theme-item" data-theme="claro" role="menuitem">Claro</button>
+          <button type="button" class="theme-item" data-theme="premium" role="menuitem">Premium</button>
+        </div>
+      </div>
+
+      <a href="{{ url_for('logout') }}" class="logout-btn">
+        <span class="logout-text">Sair</span>
+      </a>
+    </div>
+  </header>
+
+  <div class="layout">
+
+    <!-- MENU -->
+    <aside class="sidebar">
+      {% if session.get("cargo") == "caixa" %}
+        <a href="{{ url_for('venda_rapida') }}"
+           class="{% if request.endpoint == 'venda_rapida' %}active{% endif %}">
+          🧾 Venda Rápida
+        </a>
+      {% else %}
+        <a href="{{ url_for('dashboard') }}"
+           class="{% if request.endpoint == 'dashboard' or request.endpoint == 'produto_detalhe' %}active{% endif %}">
+          📊 Dashboard
+        </a>
+
+        <a href="{{ url_for('estoque') }}"
+           class="{% if request.endpoint == 'estoque' %}active{% endif %}">
+          ➕ Novo Produto
+        </a>
+
+        <a href="{{ url_for('relatorios') }}"
+           class="{% if request.endpoint == 'relatorios' %}active{% endif %}">
+          📈 Relatórios
+        </a>
+
+        <a href="{{ url_for('venda_rapida') }}"
+           class="{% if request.endpoint == 'venda_rapida' %}active{% endif %}">
+          🧾 Venda Rápida
+        </a>
+      {% endif %}
+    </aside>
+
+    <!-- CONTEÚDO -->
+    <main class="content">
+
+      <!-- MENSAGENS -->
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          <div class="flash-wrap">
+            {% for category, message in messages %}
+              <div class="flash-message flash-{{ category }}">
+                {{ message }}
+              </div>
+            {% endfor %}
+          </div>
+        {% endif %}
+      {% endwith %}
+
+      {% block content %}{% endblock %}
+    </main>
+  </div>
+
+  {% block scripts %}{% endblock %}
+
+  <script>
+    document.addEventListener("DOMContentLoaded", () => {
+      const wrap  = document.getElementById("themeWrap");
+      const menu  = document.getElementById("themeMenu");
+      const label = document.getElementById("themeLabel");
+      const icon  = document.getElementById("themeIcon");
+      const items = Array.from(document.querySelectorAll(".theme-item"));
+
+      if (!wrap || !menu || !label || !icon || items.length === 0) return;
+
+      const saved = localStorage.getItem("theme") || "claro";
+
+      function applyTheme(theme){
+        if(theme === "premium"){
+          document.body.classList.add("theme-dark");
+          label.textContent = "Premium";
+          icon.textContent = "🌙";
+        } else {
+          document.body.classList.remove("theme-dark");
+          label.textContent = "Claro";
+          icon.textContent = "☀️";
+        }
+
+        items.forEach(btn => btn.classList.toggle("active", btn.dataset.theme === theme));
+        localStorage.setItem("theme", theme);
+      }
+
+      function openMenu(){
+        wrap.classList.add("open");
+        wrap.setAttribute("aria-expanded", "true");
+      }
+
+      function closeMenu(){
+        wrap.classList.remove("open");
+        wrap.setAttribute("aria-expanded", "false");
+      }
+
+      applyTheme(saved);
+
+      wrap.addEventListener("click", (e) => {
+        if (e.target.closest(".theme-item")) return;
+        wrap.classList.contains("open") ? closeMenu() : openMenu();
+      });
+
+      items.forEach(btn => {
+        btn.addEventListener("click", () => {
+          applyTheme(btn.dataset.theme);
+          closeMenu();
+        });
+      });
+
+      document.addEventListener("click", (e) => {
+        if(!wrap.contains(e.target)) closeMenu();
+      });
+
+      wrap.addEventListener("keydown", (e) => {
+        if(e.key === "Enter" || e.key === " "){
+          e.preventDefault();
+          wrap.classList.contains("open") ? closeMenu() : openMenu();
+        }
+        if(e.key === "Escape"){
+          closeMenu();
+        }
+      });
+
+      // esconder flashes depois de alguns segundos
+      setTimeout(() => {
+        document.querySelectorAll(".flash-message").forEach(el => {
+          el.style.opacity = "0";
+          el.style.transform = "translateY(-6px)";
+          setTimeout(() => el.remove(), 300);
+        });
+      }, 3000);
+    });
+  </script>
+
+</body>
+</html>

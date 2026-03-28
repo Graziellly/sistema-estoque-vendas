@@ -1,0 +1,65 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="produto-page">
+  <div class="produto-card">
+    <h2>Novo Produto</h2>
+    <p>Cadastre com SKU, código de barras e alerta por produto</p>
+
+    <form method="POST" class="produto-form">
+
+      <div class="grid-2">
+        <div class="input-group">
+          <label>Nome do produto *</label>
+          <input type="text" name="nome" placeholder="Ex: Arroz 5kg" required>
+        </div>
+
+        <div class="input-group">
+          <label>Categoria</label>
+          <input type="text" name="categoria" placeholder="Ex: Alimentos">
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="input-group">
+          <label>SKU (código interno)</label>
+          <input type="text" name="sku" placeholder="Ex: ARZ-5KG-001">
+        </div>
+
+        <div class="input-group">
+          <label>EAN (código de barras)</label>
+          <input type="text" name="ean" placeholder="Ex: 7891234567890">
+        </div>
+      </div>
+
+      <!-- 🔥 NOVO BLOCO -->
+<div class="grid-2">
+  <div class="input-group">
+    <label>Preço *</label>
+    <input type="number" name="preco" step="0.01" min="0" placeholder="Ex: 10.50" required>
+  </div>
+
+  <div class="input-group">
+    <label>Unidade</label>
+    <input type="text" name="unidade" value="un" placeholder="un / kg / cx">
+  </div>
+</div>
+
+      <div class="grid-2">
+        <div class="input-group">
+          <label>Quantidade *</label>
+          <input type="number" name="quantidade" min="0" value="0" required>
+        </div>
+
+        <div class="input-group">
+          <label>Estoque mínimo</label>
+          <input type="number" name="minimo" min="0" value="5">
+        </div>
+      </div>
+
+      <button class="btn-produto" type="submit">Salvar Produto</button>
+    </form>
+  </div>
+</div>
+
+{% endblock %}

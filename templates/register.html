@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Criar Conta</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+</head>
+<body class="auth-body">
+
+<div class="auth-container">
+    <div class="auth-card auth-card-premium">
+        <h2>Criar Conta</h2>
+        <p>Cadastre um novo usuário</p>
+
+        {% if erro %}
+        <div class="alert alert-danger" role="alert">
+            <div class="alert-icon">⚠️</div>
+            <div class="alert-text">
+                <strong>Atenção:</strong> {{ erro }}
+            </div>
+        </div>
+        {% endif %}
+
+        <form method="POST" class="auth-form">
+            <input type="text" name="usuario" placeholder="Usuário" required>
+            <input type="password" name="senha" placeholder="Senha" required>
+
+            <div class="cargo-select">
+                <label class="cargo-card">
+                    <input type="radio" name="cargo" value="caixa" checked>
+                    <div class="cargo-inner">
+                        <div class="cargo-top">
+                            <span class="cargo-emoji">🧾</span>
+                            <span class="cargo-check">✓</span>
+                        </div>
+                        <strong>Operador de Caixa</strong>
+                        <small>Somente vendas</small>
+                    </div>
+                </label>
+
+                <label class="cargo-card">
+                    <input type="radio" name="cargo" value="estoque">
+                    <div class="cargo-inner">
+                        <div class="cargo-top">
+                            <span class="cargo-emoji">📦</span>
+                            <span class="cargo-check">✓</span>
+                        </div>
+                        <strong>Acesso ao Estoque</strong>
+                        <small>Produtos, relatórios</small>
+                    </div>
+                </label>
+            </div>
+
+            <input
+                type="password"
+                name="admin_code"
+                id="admin_code"
+                placeholder="Código admin (somente para estoque)"
+                style="display:none; margin-top:10px;"
+            >
+
+            <button type="submit" class="btn-primary">Cadastrar</button>
+        </form>
+
+        <div class="auth-footer">
+            <span>Já tem conta?</span>
+            <a href="/">Entrar</a>
+        </div>
+    </div>
+</div>
+
+<script>
+const radios = document.querySelectorAll('input[name="cargo"]');
+const adminCode = document.getElementById("admin_code");
+
+function toggleAdminCode() {
+  const cargo = document.querySelector('input[name="cargo"]:checked').value;
+
+  if (cargo === "estoque") {
+    adminCode.classList.remove("hide");
+    adminCode.classList.add("show");
+    adminCode.style.display = "block";
+    adminCode.required = true;
+  } else {
+    adminCode.classList.remove("show");
+    adminCode.classList.add("hide");
+    adminCode.required = false;
+    adminCode.value = "";
+    setTimeout(() => {
+      if (document.querySelector('input[name="cargo"]:checked').value !== "estoque") {
+        adminCode.style.display = "none";
+      }
+    }, 150);
+  }
+}
+
+radios.forEach(r => r.addEventListener("change", toggleAdminCode));
+toggleAdminCode();
+</script>
+
+</body>
+</html>
+

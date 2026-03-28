@@ -1,0 +1,404 @@
+{% extends "base.html" %}
+{% block content %}
+
+<div class="dashboard-cards">
+  <div class="dashboard-card card-blue">
+    <h3>Total de Produtos</h3>
+    <span>{{ total_produtos }}</span>
+  </div>
+
+  <div class="dashboard-card card-green">
+    <h3>Total de Itens</h3>
+    <span>{{ total_itens }}</span>
+  </div>
+
+  <div class="dashboard-card card-red">
+    <h3>Estoque Baixo</h3>
+    <span>{{ estoque_baixo }}</span>
+  </div>
+
+  <div class="dashboard-card card-purple">
+    <h3>Produtos Zerados</h3>
+    <span>{{ produtos_zerados }}</span>
+  </div>
+
+  <div class="dashboard-card card-dark">
+    <h3>Última Mov. Hoje</h3>
+    <span>
+      {% if ultima_mov_hoje %}
+        {{ ultima_mov_hoje.tipo }} - {{ ultima_mov_hoje.criado_em.strftime("%H:%M") }}
+      {% else %}
+        Nenhuma
+      {% endif %}
+    </span>
+  </div>
+
+  <div class="dashboard-card card-green">
+  <h3>Vendido Hoje</h3>
+  <span>{{ total_vendido_hoje }}</span>
+</div>
+</div>
+
+<div class="filtros filtros-grid">
+  <input id="buscaProduto" type="text" placeholder="Buscar por nome / SKU / EAN...">
+
+  <select id="filtroStatus">
+    <option value="todos">Todos</option>
+    <option value="normal">Estoque normal</option>
+    <option value="baixo">Estoque baixo</option>
+    <option value="sem">Sem estoque</option>
+  </select>
+
+  <input id="filtroCategoria" type="text" placeholder="Filtrar por categoria (ex: Alimentos)">
+  <input id="filtroUnidade" type="text" placeholder="Filtrar por unidade (ex: un / kg / cx)">
+</div>
+
+<div class="table-dashboard">
+  <h3>Produtos</h3>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Produto</th>
+        <th>SKU</th>
+        <th>EAN</th>
+        <th>Categoria</th>
+        <th>Unidade</th>
+        <th>Preço</th>
+        <th>Qtd</th>
+        <th>Mín</th>
+        <th>Status</th>
+        <th style="min-width: 220px;">Ações</th>
+      </tr>
+    </thead>
+
+    <tbody>
+      {% for p in produtos %}
+      {% set status = "baixo" if p.quantidade <= p.minimo else "normal" %}
+      {% set status = "sem" if p.quantidade == 0 else status %}
+
+      <tr class="{% if p.quantidade <= p.minimo %}alerta{% endif %}"
+          data-nome="{{ (p.nome or '')|lower }}"
+          data-sku="{{ (p.sku or '')|lower }}"
+          data-ean="{{ (p.ean or '')|lower }}"
+          data-categoria="{{ (p.categoria or '')|lower }}"
+          data-unidade="{{ (p.unidade or '')|lower }}"
+          data-status="{{ status }}">
+
+        <td>
+          <a class="produto-link" href="{{ url_for('produto_detalhe', id=p.id) }}">
+            {{ p.nome }}
+          </a>
+        </td>
+
+        <td>{{ p.sku or "-" }}</td>
+        <td>{{ p.ean or "-" }}</td>
+        <td>{{ p.categoria or "-" }}</td>
+        <td>{{ p.unidade or "un" }}</td>
+        <td>R$ {{ "%.2f"|format(p.preco or 0) }}</td>
+        <td><strong>{{ p.quantidade }}</strong></td>
+        <td>{{ p.minimo }}</td>
+
+        <td>
+          {% if p.quantidade == 0 %}
+            <span class="status-baixo">Sem estoque</span>
+          {% elif p.quantidade <= p.minimo %}
+            <span class="status-baixo">Baixo</span>
+          {% else %}
+            <span class="status-ok">Normal</span>
+          {% endif %}
+        </td>
+
+        <td class="acoes">
+          <div class="acoes-panel">
+
+            <a href="{{ url_for('produto_detalhe', id=p.id) }}" class="btn btn-acao wide">
+              Histórico
+            </a>
+
+            <button type="button" class="btn btn-red"
+              onclick="openMov('{{ p.id }}','SAIDA','{{ p.nome|e }}', '{{ p.quantidade }}')">
+              Saída
+            </button>
+
+            <button type="button" class="btn btn-green"
+              onclick="openMov('{{ p.id }}','ENTRADA','{{ p.nome|e }}', '{{ p.quantidade }}')">
+              Entrada
+            </button>
+
+            <button type="button" class="btn btn-editar"
+              data-id="{{ p.id }}"
+              data-nome="{{ p.nome|e }}"
+              data-quantidade="{{ p.quantidade }}"
+              data-minimo="{{ p.minimo }}"
+              data-preco="{{ p.preco or 0 }}"
+              data-categoria="{{ p.categoria or '' }}"
+              data-unidade="{{ p.unidade or 'un' }}"
+              data-sku="{{ p.sku or '' }}"
+              data-ean="{{ p.ean or '' }}"
+              onclick="openEditModal(this)">
+              Editar
+            </button>
+
+            <a href="{{ url_for('excluir_produto', id=p.id) }}"
+               class="btn btn-excluir btn-full"
+               onclick="return confirm('Deseja excluir este produto?')">
+              Excluir
+            </a>
+
+          </div>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+<div id="modalMov" class="modal-overlay" onclick="closeMov(event)">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="movTitle">
+    <div class="modal-header">
+      <h3 id="movTitle">Movimentar</h3>
+      <button type="button" class="modal-close" onclick="closeMov()">✕</button>
+    </div>
+
+    <form id="formMov" method="POST">
+      <div class="modal-body">
+        <label>Quantidade</label>
+        <input id="movQtd" type="number" name="quantidade" min="1" value="1" required>
+
+        <label>Motivo</label>
+        <div class="motivos">
+          <button type="button" class="chip chip-active" data-motivo="venda">🛒 Venda</button>
+          <button type="button" class="chip" data-motivo="perda">📉 Perda</button>
+          <button type="button" class="chip" data-motivo="avaria">🧯 Avaria</button>
+          <button type="button" class="chip" data-motivo="consumo">🍽️ Consumo</button>
+          <button type="button" class="chip" data-motivo="ajuste">🛠️ Ajuste</button>
+          <button type="button" class="chip" data-motivo="outro">✍️ Outro</button>
+        </div>
+
+        <input type="hidden" name="motivo" id="movMotivo" value="venda">
+
+        <div class="grid-2" style="margin-top:12px;">
+          <div class="input-group">
+            <label>Observação (opcional)</label>
+            <input type="text" name="obs" id="movObs" placeholder="Ex: venda no balcão / pedido iFood...">
+          </div>
+
+          <div class="input-group">
+            <label>Prévia</label>
+            <div class="preview-box" id="movPreview">Antes: — | Depois: —</div>
+          </div>
+        </div>
+
+        <input type="hidden" name="tipo" id="movTipo">
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-cancelar" onclick="closeMov()">Cancelar</button>
+        <button type="submit" class="btn btn-salvar">Confirmar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div id="modalEdit" class="modal-overlay" onclick="closeEditModal(event)">
+  <div class="modal-card" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
+    <div class="modal-header">
+      <h3 id="modalTitle">Editar Produto</h3>
+      <button type="button" class="modal-close" onclick="closeEditModal()">✕</button>
+    </div>
+
+    <form id="formEdit" method="POST">
+      <div class="modal-body">
+        <label>Nome do produto</label>
+        <input id="editNome" type="text" name="nome" required>
+
+        <div class="grid-2">
+          <div class="input-group">
+            <label>Quantidade</label>
+            <input id="editQtd" type="number" name="quantidade" min="0" required>
+          </div>
+
+          <div class="input-group">
+            <label>Estoque mínimo</label>
+            <input id="editMinimo" type="number" name="minimo" min="0" required>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="input-group">
+            <label>Preço</label>
+            <input id="editPreco" type="text" name="preco" placeholder="Ex: 10.50">
+          </div>
+
+          <div class="input-group">
+            <label>Categoria</label>
+            <input id="editCategoria" type="text" name="categoria" placeholder="Ex: Alimentos">
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="input-group">
+            <label>Unidade</label>
+            <input id="editUnidade" type="text" name="unidade" placeholder="un / kg / cx">
+          </div>
+
+          <div class="input-group">
+            <label>SKU (código interno)</label>
+            <input id="editSku" type="text" name="sku" placeholder="Ex: ARZ0001">
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="input-group">
+            <label>EAN (código de barras)</label>
+            <input id="editEan" type="text" name="ean" placeholder="Ex: 7891234567890">
+          </div>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button type="button" class="btn btn-cancelar" onclick="closeEditModal()">Cancelar</button>
+        <button type="submit" class="btn btn-salvar">Salvar</button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<script>
+  const busca = document.getElementById("buscaProduto");
+  const filtroStatus = document.getElementById("filtroStatus");
+  const filtroCategoria = document.getElementById("filtroCategoria");
+  const filtroUnidade = document.getElementById("filtroUnidade");
+
+  function aplicarFiltro() {
+    const texto = (busca?.value || "").toLowerCase().trim();
+    const st = (filtroStatus?.value || "todos").toLowerCase();
+    const cat = (filtroCategoria?.value || "").toLowerCase().trim();
+    const un = (filtroUnidade?.value || "").toLowerCase().trim();
+
+    document.querySelectorAll("tbody tr").forEach(tr => {
+      const nome = (tr.dataset.nome || "").toLowerCase();
+      const sku = (tr.dataset.sku || "").toLowerCase();
+      const ean = (tr.dataset.ean || "").toLowerCase();
+      const categoria = (tr.dataset.categoria || "").toLowerCase();
+      const unidade = (tr.dataset.unidade || "").toLowerCase();
+      const status = (tr.dataset.status || "normal").toLowerCase();
+
+      const okTexto = !texto || nome.includes(texto) || sku.includes(texto) || ean.includes(texto);
+      const okStatus = (st === "todos") || (status === st);
+      const okCategoria = !cat || categoria.includes(cat);
+      const okUnidade = !un || unidade.includes(un);
+
+      tr.style.display = (okTexto && okStatus && okCategoria && okUnidade) ? "" : "none";
+    });
+  }
+
+  busca?.addEventListener("input", aplicarFiltro);
+  filtroStatus?.addEventListener("change", aplicarFiltro);
+  filtroCategoria?.addEventListener("input", aplicarFiltro);
+  filtroUnidade?.addEventListener("input", aplicarFiltro);
+
+  let estoqueAtualMov = 0;
+
+  function setMotivo(valor) {
+    const hidden = document.getElementById("movMotivo");
+    if (hidden) hidden.value = valor;
+
+    document.querySelectorAll(".motivos .chip").forEach(btn => {
+      btn.classList.toggle("chip-active", btn.dataset.motivo === valor);
+    });
+  }
+
+  function atualizarPreview() {
+    const tipo = (document.getElementById("movTipo")?.value || "").toUpperCase();
+    const qtd = parseInt(document.getElementById("movQtd")?.value || "0", 10) || 0;
+
+    let depois = estoqueAtualMov;
+    if (tipo === "SAIDA") depois = Math.max(0, estoqueAtualMov - qtd);
+    if (tipo === "ENTRADA") depois = estoqueAtualMov + qtd;
+
+    const box = document.getElementById("movPreview");
+    if (box) box.textContent = `Antes: ${estoqueAtualMov} | Depois: ${depois}`;
+  }
+
+  function openMov(id, tipo, nome, qtdAtual = 0) {
+    const modal = document.getElementById("modalMov");
+    const form = document.getElementById("formMov");
+    if (!modal || !form) return;
+
+    estoqueAtualMov = parseInt(qtdAtual || 0, 10);
+    form.action = `/movimentar/${id}`;
+
+    const movTipo = document.getElementById("movTipo");
+    const movTitle = document.getElementById("movTitle");
+    const movQtd = document.getElementById("movQtd");
+
+    if (movTipo) movTipo.value = (tipo || "").toUpperCase();
+    if (movTitle) movTitle.innerText = `${tipo} - ${nome}`;
+    if (movQtd) movQtd.value = 1;
+
+    setMotivo("venda");
+    atualizarPreview();
+
+    modal.classList.add("show");
+    setTimeout(() => movQtd?.focus(), 80);
+  }
+
+  function closeMov(e) {
+    const modal = document.getElementById("modalMov");
+    if (!modal) return;
+    if (!e || e.target === modal) modal.classList.remove("show");
+  }
+
+  document.addEventListener("click", (e) => {
+    const chip = e.target.closest(".motivos .chip");
+    if (!chip) return;
+    setMotivo(chip.dataset.motivo);
+  });
+
+  document.addEventListener("input", (e) => {
+    if (e.target && e.target.id === "movQtd") atualizarPreview();
+  });
+
+  function openEditModal(btn) {
+    const modal = document.getElementById("modalEdit");
+    const form = document.getElementById("formEdit");
+    if (!modal || !form || !btn) return;
+
+    const id = btn.dataset.id;
+    form.action = `/editar_produto/${id}`;
+
+    document.getElementById("editNome").value = btn.dataset.nome || "";
+    document.getElementById("editQtd").value = btn.dataset.quantidade || 0;
+    document.getElementById("editMinimo").value = btn.dataset.minimo || 0;
+    document.getElementById("editPreco").value = btn.dataset.preco || 0;
+    document.getElementById("editCategoria").value = btn.dataset.categoria || "";
+    document.getElementById("editUnidade").value = btn.dataset.unidade || "un";
+    document.getElementById("editSku").value = btn.dataset.sku || "";
+    document.getElementById("editEan").value = btn.dataset.ean || "";
+
+    modal.classList.add("show");
+    setTimeout(() => document.getElementById("editNome")?.focus(), 80);
+  }
+
+  function closeEditModal(e) {
+    const modal = document.getElementById("modalEdit");
+    if (!modal) return;
+    if (!e || e.target === modal) modal.classList.remove("show");
+  }
+
+  document.addEventListener("keydown", (ev) => {
+    if (ev.key === "Escape") {
+      document.getElementById("modalEdit")?.classList.remove("show");
+      document.getElementById("modalMov")?.classList.remove("show");
+    }
+  });
+
+  window.openMov = openMov;
+  window.closeMov = closeMov;
+  window.openEditModal = openEditModal;
+  window.closeEditModal = closeEditModal;
+</script>
+
+{% endblock %}
