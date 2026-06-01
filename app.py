@@ -11,6 +11,9 @@ import os
 import time
 import uuid
 import mercadopago
+from dotenv import load_dotenv
+
+load_dotenv()
 
 # ✅ FUSO BRASIL
 FUSO_BR = ZoneInfo("America/Sao_Paulo")
@@ -18,8 +21,20 @@ FUSO_BR = ZoneInfo("America/Sao_Paulo")
 def agora_br():
     return datetime.now(FUSO_BR)
 
-# ⚠️ USE TOKEN DE TESTE!!!
-MP_ACCESS_TOKEN = "APP_USR-1919354004447670-032714-e0db1140c259a95b32d2aa1c5473630a-1323236580"
+# ✅ TOKEN VINDO DA VARIÁVEL DE AMBIENTE
+MP_ACCESS_TOKEN = os.getenv("MP_ACCESS_TOKEN")
+
+if not MP_ACCESS_TOKEN:
+    raise ValueError("A variável de ambiente MP_ACCESS_TOKEN não foi configurada.")
+
+print("TOKEN MP:", MP_ACCESS_TOKEN.split("-", 1)[0])
+
+MP_PAYER_EMAIL = os.getenv("MP_PAYER_EMAIL", "cliente.pdv@example.com")
+MP_PAYER_EMAIL_PLACEHOLDERS = {
+    "cliente.pdv@example.com",
+    "comprador@example.com",
+    "email_do_cliente@exemplo.com",
+}
 
 sdk = mercadopago.SDK(MP_ACCESS_TOKEN)
 
@@ -32,10 +47,10 @@ os.makedirs(app.instance_path, exist_ok=True)
 
 app.config["SQLALCHEMY_DATABASE_URI"] = "sqlite:///" + os.path.join(app.instance_path, "estoque.db")
 app.config["SQLALCHEMY_TRACK_MODIFICATIONS"] = False
-app.secret_key = "segredo_supermercado"
+app.secret_key = os.getenv("SECRET_KEY", "segredo_supermercado")
 
 # código para permitir cadastro de usuário de estoque
-app.config["ADMIN_CADASTRO_CODE"] = "ADMIN123"
+app.config["ADMIN_CADASTRO_CODE"] = os.getenv("ADMIN_CADASTRO_CODE", "ADMIN123")
 
 db.init_app(app)
 migrate = Migrate(app, db)
@@ -132,6 +147,80 @@ def parse_float(valor, default=0.0):
         return float(str(valor).replace(",", ".").strip())
     except Exception:
         return default
+
+
+def payer_email_configurado():
+    email = (MP_PAYER_EMAIL or "").strip().lower()
+    return bool(email and email not in MP_PAYER_EMAIL_PLACEHOLDERS)
+
+
+def confirmar_venda_pix(venda):
+    if venda.status == "PAGO":
+        return {
+            "ok": True,
+            "msg": "PIX já confirmado",
+            "redirect": url_for("notinha")
+        }, 200
+
+    itens = VendaItem.query.filter_by(venda_id=venda.id).all()
+    if not itens:
+        return {"ok": False, "msg": "Nenhum item encontrado para esta venda"}, 400
+
+    itens_cupom = []
+
+    for item in itens:
+        produto = Produto.query.get(item.produto_id)
+        if not produto:
+            return {"ok": False, "msg": "Produto da venda não encontrado"}, 404
+
+        antes = int(produto.quantidade or 0)
+        if antes < item.quantidade:
+            return {"ok": False, "msg": f"Estoque insuficiente: {produto.nome}"}, 400
+
+        produto.quantidade = antes - item.quantidade
+
+        registrar_mov(
+            produto.id,
+            "SAIDA",
+            item.quantidade,
+            "venda",
+            antes,
+            produto.quantidade,
+            obs="Venda PDV (PIX)"
+        )
+
+        subtotal = float(item.preco_unit or 0) * int(item.quantidade or 0)
+
+        itens_cupom.append({
+            "nome": produto.nome,
+            "ean": produto.ean,
+            "qtd": item.quantidade,
+            "preco_unit": float(item.preco_unit or 0),
+            "subtotal": subtotal
+        })
+
+    venda.status = "PAGO"
+    venda.forma_pagamento = "pix"
+    venda.pago_em = agora_br()
+    db.session.commit()
+
+    session["ultimo_cupom"] = {
+        "venda_id": venda.id,
+        "data_hora": venda.pago_em.strftime("%d/%m/%Y %H:%M"),
+        "operador": session.get("usuario", "caixa"),
+        "forma": "pix",
+        "valor_recebido": None,
+        "troco": None,
+        "total": float(venda.total or 0),
+        "itens": itens_cupom
+    }
+
+    return {
+        "ok": True,
+        "status": venda.status,
+        "msg": "Pagamento realizado!",
+        "redirect": url_for("notinha")
+    }, 200
 
 
 # =========================
@@ -762,6 +851,12 @@ def api_criar_pix():
     data = request.get_json() or {}
     carrinho = data.get("carrinho") or []
 
+    if not payer_email_configurado():
+        return jsonify({
+            "ok": False,
+            "msg": "Configure MP_PAYER_EMAIL no .env com um e-mail real de comprador."
+        }), 400
+
     if not carrinho:
         return jsonify({"ok": False, "msg": "Carrinho vazio"}), 400
 
@@ -823,7 +918,7 @@ def api_criar_pix():
         "description": f"Venda PDV #{venda.id}",
         "payment_method_id": "pix",
         "payer": {
-            "email": "cliente@example.com",
+            "email": MP_PAYER_EMAIL,
             "first_name": "Cliente",
             "last_name": "PDV"
         }
@@ -835,13 +930,23 @@ def api_criar_pix():
     }
 
     payment_response = sdk.payment().create(payment_data, request_options)
+
+    print("STATUS:", payment_response.get("status"))
+
     payment = payment_response.get("response", {})
 
     if payment_response.get("status") not in [200, 201]:
         db.session.rollback()
+        msg = payment.get("message", "Erro ao gerar PIX real")
+        if msg == "payer email forbidden":
+            msg = (
+                "E-mail do pagador recusado pelo Mercado Pago. "
+                "Configure MP_PAYER_EMAIL no .env com um e-mail de comprador "
+                "diferente do usuário vendedor/teste do access token."
+            )
         return jsonify({
             "ok": False,
-            "msg": payment.get("message", "Erro ao gerar PIX real")
+            "msg": msg
         }), 400
 
     venda.txid = str(payment.get("id") or txid_local)
@@ -856,7 +961,8 @@ def api_criar_pix():
         "total": total,
         "status_mp": payment.get("status"),
         "pix_copia_cola": tx_data.get("qr_code"),
-        "qr_code_base64": tx_data.get("qr_code_base64")
+        "qr_code_base64": tx_data.get("qr_code_base64"),
+        "ticket_url": tx_data.get("ticket_url")
     })
 
 
@@ -869,9 +975,46 @@ def status_pix(txid):
     if not venda:
         return jsonify({"ok": False, "msg": "PIX não encontrado"}), 404
 
+    if venda.status == "PAGO":
+        data, status_code = confirmar_venda_pix(venda)
+        return jsonify(data), status_code
+
+    try:
+        payment_response = sdk.payment().get(txid)
+        payment = payment_response.get("response", {}) or {}
+        status_mp = payment.get("status")
+        status_detail = payment.get("status_detail")
+    except Exception:
+        return jsonify({
+            "ok": True,
+            "status": venda.status,
+            "msg": "Aguardando confirmação do Mercado Pago"
+        })
+
+    if status_mp == "approved":
+        data, status_code = confirmar_venda_pix(venda)
+        data["status_mp"] = status_mp
+        data["status_detail"] = status_detail
+        return jsonify(data), status_code
+
+    if status_mp in ["cancelled", "rejected"]:
+        venda.status = "CANCELADO"
+        venda.cancelado_em = agora_br()
+        db.session.commit()
+        return jsonify({
+            "ok": False,
+            "status": venda.status,
+            "status_mp": status_mp,
+            "status_detail": status_detail,
+            "msg": "PIX cancelado ou recusado pelo Mercado Pago."
+        }), 400
+
     return jsonify({
         "ok": True,
-        "status": venda.status
+        "status": venda.status,
+        "status_mp": status_mp,
+        "status_detail": status_detail,
+        "msg": "Aguardando pagamento PIX"
     })
 
 
@@ -885,68 +1028,29 @@ def confirmar_pix(txid):
         return jsonify({"ok": False, "msg": "Venda PIX não encontrada"}), 404
 
     if venda.status == "PAGO":
+        data, status_code = confirmar_venda_pix(venda)
+        return jsonify(data), status_code
+
+    try:
+        payment_response = sdk.payment().get(txid)
+        payment = payment_response.get("response", {}) or {}
+    except Exception:
         return jsonify({
-            "ok": True,
-            "msg": "PIX já confirmado",
-            "redirect": url_for("cupom")
-        })
+            "ok": False,
+            "msg": "Não foi possível consultar o Mercado Pago agora."
+        }), 400
 
-    itens = VendaItem.query.filter_by(venda_id=venda.id).all()
-    if not itens:
-        return jsonify({"ok": False, "msg": "Nenhum item encontrado para esta venda"}), 400
+    if payment.get("status") != "approved":
+        return jsonify({
+            "ok": False,
+            "status": venda.status,
+            "status_mp": payment.get("status"),
+            "status_detail": payment.get("status_detail"),
+            "msg": "PIX ainda não foi aprovado."
+        }), 400
 
-    itens_cupom = []
-
-    for item in itens:
-        produto = Produto.query.get(item.produto_id)
-        if not produto:
-            return jsonify({"ok": False, "msg": "Produto da venda não encontrado"}), 404
-
-        antes = int(produto.quantidade or 0)
-        if antes < item.quantidade:
-            return jsonify({"ok": False, "msg": f"Estoque insuficiente: {produto.nome}"}), 400
-
-        produto.quantidade = antes - item.quantidade
-
-        registrar_mov(
-            produto.id,
-            "SAIDA",
-            item.quantidade,
-            "venda",
-            antes,
-            produto.quantidade,
-            obs="Venda PDV (PIX)"
-        )
-
-        subtotal = float(item.preco_unit or 0) * int(item.quantidade or 0)
-
-        itens_cupom.append({
-            "nome": produto.nome,
-            "ean": produto.ean,
-            "qtd": item.quantidade,
-            "preco_unit": float(item.preco_unit or 0),
-            "subtotal": subtotal
-        })
-
-    venda.status = "PAGO"
-    venda.forma_pagamento = "pix"
-    db.session.commit()
-
-    session["ultimo_cupom"] = {
-        "venda_id": venda.id,
-        "data_hora": datetime.now().strftime("%d/%m/%Y %H:%M"),
-        "operador": session.get("usuario", "caixa"),
-        "forma": "pix",
-        "valor_recebido": None,
-        "troco": None,
-        "total": float(venda.total or 0),
-        "itens": itens_cupom
-    }
-
-    return jsonify({
-        "ok": True,
-        "redirect": url_for("cupom")
-    })
+    data, status_code = confirmar_venda_pix(venda)
+    return jsonify(data), status_code
 
 # =========================
 # CUPOM / NOTINHA
@@ -977,5 +1081,6 @@ def notinha():
 # START
 # =========================
 if __name__ == "__main__":
-    app.run(debug=True)
+    import os
+    app.run(host="0.0.0.0", port=int(os.environ.get("PORT", 5000)))
 

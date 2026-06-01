@@ -1361,6 +1361,19 @@ td.acoes{
   cursor: pointer;
 }
 
+.pix-ticket-link {
+  display: block;
+  margin-top: 10px;
+  color: #2563eb;
+  font-weight: 800;
+  text-align: center;
+  text-decoration: none;
+}
+
+.pix-ticket-link:hover {
+  text-decoration: underline;
+}
+
 .modal-actions {
   display: flex;
   justify-content: flex-end;

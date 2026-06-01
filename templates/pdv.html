@@ -110,11 +110,15 @@
       <button type="button" class="btn btn-editar" onclick="copiarPix()">
         Copiar código PIX
       </button>
+
+      <a id="pixTicketUrl" class="pix-ticket-link" href="#" target="_blank" rel="noopener" style="display:none;">
+        Abrir pagamento no Mercado Pago
+      </a>
     </div>
 
     <div class="modal-actions">
       <button type="button" class="btn btn-cancelar" onclick="fecharPixModal()">Cancelar</button>
-      <button type="button" class="btn btn-salvar" id="confirmarPixBtn">Já paguei</button>
+      <button type="button" class="btn btn-salvar" id="confirmarPixBtn">Verificar pagamento</button>
     </div>
   </div>
 </div>
@@ -156,6 +160,7 @@
     let cart = [];
     let isAdding = false;
     let ultimoPixTxid = null;
+    let pixStatusTimer = null;
 
     function saveCart() {
       try { localStorage.setItem(CART_KEY, JSON.stringify(cart)); } catch(e) {}
@@ -265,7 +270,51 @@
       if (!pixModal) return;
       if (!e || e.target === pixModal) {
         pixModal.classList.remove("show");
+        pararConsultaPix();
       }
+    }
+
+    function pararConsultaPix() {
+      if (pixStatusTimer) {
+        clearInterval(pixStatusTimer);
+        pixStatusTimer = null;
+      }
+    }
+
+    async function consultarStatusPix() {
+      if (!ultimoPixTxid) return;
+
+      try {
+        const r = await fetch("/api/status_pix/" + ultimoPixTxid);
+        const j = await r.json().catch(() => ({}));
+
+        if (!r.ok || !j.ok) {
+          if (j.msg) showMsg(j.msg, false);
+          pararConsultaPix();
+          return;
+        }
+
+        if (j.status === "PAGO" || j.redirect) {
+          pararConsultaPix();
+          fecharPixModal();
+          showMsg("Pagamento realizado!", true);
+          clearCart();
+          if (moneyReceived) moneyReceived.value = "";
+          render();
+
+          setTimeout(() => {
+            window.location.href = j.redirect || "/notinha";
+          }, 700);
+        }
+      } catch (e) {
+        console.error(e);
+      }
+    }
+
+    function iniciarConsultaPix() {
+      pararConsultaPix();
+      consultarStatusPix();
+      pixStatusTimer = setInterval(consultarStatusPix, 4000);
     }
 
     function copiarPix() {
@@ -454,7 +503,16 @@ const forma = payMethod.value;
       qrImg.style.display = "none";
     }
 
+    const pixTicketUrl = document.getElementById("pixTicketUrl");
+    if (pixTicketUrl && j.ticket_url) {
+      pixTicketUrl.href = j.ticket_url;
+      pixTicketUrl.style.display = "block";
+    } else if (pixTicketUrl) {
+      pixTicketUrl.style.display = "none";
+    }
+
     showMsg("Aguardando pagamento PIX...", true);
+    iniciarConsultaPix();
     return;
 
   } catch (e) {
@@ -527,43 +585,7 @@ if (btnFinish) {
 }
 
 if (confirmarPixBtn){
-  confirmarPixBtn.addEventListener("click", async () => {
-    if (!ultimoPixTxid) {
-      showMsg("Nenhum PIX pendente encontrado.", false);
-      return;
-    }
-
-    try {
-      const r = await fetch("/api/confirmar_pix/" + ultimoPixTxid, {
-        method: "POST"
-      });
-
-      const j = await r.json().catch(() => ({}));
-
-      if (!r.ok || !j.ok) {
-        showMsg(j.msg || "Erro ao confirmar PIX.", false);
-        return;
-      }
-
-      fecharPixModal();
-showMsg("Pagamento aprovado!", true);
-
-clearCart();
-if (moneyReceived) moneyReceived.value = "";
-render();
-focusEAN(false);
-
-if (j.redirect) {
-  setTimeout(() => {
-    window.location.href = j.redirect;
-  }, 800);
-}
-
-    } catch (e) {
-      console.error(e);
-      showMsg("Erro ao confirmar pagamento PIX.", false);
-    }
-  });
+  confirmarPixBtn.addEventListener("click", consultarStatusPix);
 }
 
     document.addEventListener("click", (e) => {

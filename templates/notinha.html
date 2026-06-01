@@ -1,13 +1,36 @@
 <!DOCTYPE html>
-<html>
+<html lang="pt-br">
 <head>
   <meta charset="UTF-8">
   <title>Notinha</title>
   <style>
-    body { font-family: Arial; width: 280px; margin: 0 auto; }
-    h2 { text-align: center; margin-bottom: 5px; }
+    body {
+      font-family: Arial, sans-serif;
+      width: 280px;
+      margin: 0 auto;
+      color: #000;
+      background: #fff;
+    }
+
+    h2 {
+      text-align: center;
+      margin-bottom: 5px;
+    }
+
+    .center { text-align: center; }
     .linha { border-top: 1px dashed #000; margin: 10px 0; }
-    .item { display: flex; justify-content: space-between; }
+    .item { margin: 8px 0; }
+    .row { display: flex; justify-content: space-between; gap: 12px; }
+    .small { font-size: 12px; }
+    .total { font-size: 18px; font-weight: bold; }
+
+    button {
+      width: 100%;
+      margin-top: 12px;
+      padding: 10px;
+      cursor: pointer;
+    }
+
     @media print {
       button { display: none; }
     }
@@ -15,38 +38,48 @@
 </head>
 <body>
 
-<h2>SUA LOJA</h2>
-<p style="text-align:center;">Recibo de Venda</p>
+<h2>ATACADO NORDESTÃO</h2>
+<p class="center">notinha de Venda</p>
 
 <div class="linha"></div>
 
-<p><b>Venda:</b> {{ venda.id }}</p>
-<p><b>Data:</b> {{ venda.criado_em.strftime("%d/%m/%Y %H:%M") }}</p>
-<p><b>Pagamento:</b> {{ venda.forma_pagamento.upper() }}</p>
+<p><b>Venda:</b> #{{ cupom.venda_id }}</p>
+<p><b>Data:</b> {{ cupom.data_hora }}</p>
+<p><b>Operador:</b> {{ cupom.operador }}</p>
+<p><b>Pagamento:</b> {{ cupom.forma|upper }}</p>
 
 <div class="linha"></div>
 
-{% for i in itens %}
+{% for item in cupom.itens %}
   <div class="item">
-    <span>{{ i.nome_produto }} x{{ i.quantidade }}</span>
-    <span>R$ {{ "%.2f"|format(i.subtotal) }}</span>
+    <div class="row">
+      <span>{{ item.nome }}</span>
+      <span>R$ {{ "%.2f"|format(item.subtotal) }}</span>
+    </div>
+    <div class="row small">
+      <span>{{ item.qtd }} x R$ {{ "%.2f"|format(item.preco_unit) }}</span>
+      <span>EAN: {{ item.ean or "-" }}</span>
+    </div>
   </div>
 {% endfor %}
 
 <div class="linha"></div>
 
-<p><b>Total:</b> R$ {{ "%.2f"|format(venda.total) }}</p>
+<div class="row total">
+  <span>Total</span>
+  <span>R$ {{ "%.2f"|format(cupom.total) }}</span>
+</div>
 
-{% if venda.forma_pagamento == "dinheiro" %}
-<p><b>Recebido:</b> R$ {{ "%.2f"|format(venda.valor_recebido) }}</p>
-<p><b>Troco:</b> R$ {{ "%.2f"|format(venda.troco) }}</p>
+{% if cupom.forma == "dinheiro" %}
+<p><b>Recebido:</b> R$ {{ "%.2f"|format(cupom.valor_recebido or 0) }}</p>
+<p><b>Troco:</b> R$ {{ "%.2f"|format(cupom.troco or 0) }}</p>
 {% endif %}
 
 <div class="linha"></div>
 
-<p style="text-align:center;">Obrigado pela preferência!</p>
+<p class="center">Obrigado pela preferência!</p>
 
-<button onclick="window.print()">🧾 Imprimir</button>
+<button onclick="window.print()">Imprimir</button>
 
 </body>
 </html>

@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: sistema-estoque-vendas
+    runtime: python
+    buildCommand: pip install -r requirements.txt
+    startCommand: gunicorn app:app
+    envVars:
+      - key: MP_ACCESS_TOKEN
+        sync: false
+      - key: MP_PAYER_EMAIL
+        sync: false
+      - key: SECRET_KEY
+        generateValue: true
+      - key: ADMIN_CADASTRO_CODE
+        sync: false

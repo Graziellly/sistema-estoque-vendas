@@ -138,11 +138,15 @@
       >
         Copiar código PIX
       </button>
+
+      <a id="pixTicketUrl" class="pix-ticket-link" href="#" target="_blank" rel="noopener" style="display:none;">
+        Abrir pagamento no Mercado Pago
+      </a>
     </div>
 
     <div class="modal-actions">
       <button type="button" class="btn btn-cancelar" onclick="fecharPixModal()">Cancelar</button>
-      <button type="button" class="btn btn-salvar" id="confirmarPixBtn">Já paguei</button>
+      <button type="button" class="btn btn-salvar" id="confirmarPixBtn">Verificar pagamento</button>
     </div>
   </div>
 </div>
@@ -167,6 +171,8 @@
 
   let cart = [];
   let isAdding = false;
+  let pixStatusTimer = null;
+  let ultimoPixTxid = null;
 
   document.addEventListener("submit", (e) => {
     e.preventDefault();
@@ -437,6 +443,7 @@
         }
 
         document.getElementById("pixModal").classList.add("show");
+        ultimoPixTxid = data.txid;
 
         document.getElementById("pixTotal").innerText =
           "R$ " + Number(data.total || 0).toFixed(2).replace(".", ",");
@@ -452,38 +459,15 @@
           qrImg.style.display = "none";
         }
 
-        document.getElementById("confirmarPixBtn").onclick = async () => {
-          try {
-            const r2 = await fetch(`/api/confirmar_pix/${data.txid}`, {
-              method: "POST"
-            });
+        const pixTicketUrl = document.getElementById("pixTicketUrl");
+        if (pixTicketUrl && data.ticket_url) {
+          pixTicketUrl.href = data.ticket_url;
+          pixTicketUrl.style.display = "block";
+        } else if (pixTicketUrl) {
+          pixTicketUrl.style.display = "none";
+        }
 
-            const j2 = await r2.json().catch(() => ({}));
-
-            if (!r2.ok || !j2.ok){
-              setStatus(j2.msg || "Erro ao confirmar pagamento", "err");
-              beepERR();
-              return;
-            }
-
-            document.getElementById("pixModal").classList.remove("show");
-
-            setStatus("Pagamento confirmado!", "ok");
-            beepOK();
-
-            cart = [];
-            clearCartStorage();
-            if (valorRecebido) valorRecebido.value = "";
-            render();
-            focusEAN(false);
-
-            try { window.open("/cupom", "_blank"); } catch(e){}
-
-          } catch (err) {
-            setStatus("Erro ao confirmar PIX", "err");
-            beepERR();
-          }
-        };
+        iniciarConsultaPix();
 
         return;
 
@@ -590,7 +574,56 @@
 
     if (!e || e.target === modal) {
       modal.classList.remove("show");
+      pararConsultaPix();
     }
+  }
+
+  function pararConsultaPix(){
+    if (pixStatusTimer) {
+      clearInterval(pixStatusTimer);
+      pixStatusTimer = null;
+    }
+  }
+
+  async function consultarStatusPix(){
+    if (!ultimoPixTxid) return;
+
+    try {
+      const res = await fetch(`/api/status_pix/${ultimoPixTxid}`);
+      const data = await res.json().catch(() => ({}));
+
+      if (!res.ok || !data.ok) {
+        if (data.msg) setStatus(data.msg, "err");
+        pararConsultaPix();
+        beepERR();
+        return;
+      }
+
+      if (data.status === "PAGO" || data.redirect) {
+        pararConsultaPix();
+        document.getElementById("pixModal")?.classList.remove("show");
+        setStatus("Pagamento realizado!", "ok");
+        beepOK();
+
+        cart = [];
+        clearCartStorage();
+        if (valorRecebido) valorRecebido.value = "";
+        render();
+        focusEAN(false);
+
+        setTimeout(() => {
+          window.location.href = data.redirect || "/notinha";
+        }, 700);
+      }
+    } catch (err) {
+      console.error(err);
+    }
+  }
+
+  function iniciarConsultaPix(){
+    pararConsultaPix();
+    consultarStatusPix();
+    pixStatusTimer = setInterval(consultarStatusPix, 4000);
   }
 
   function copiarPix(){
@@ -601,6 +634,8 @@
       .then(() => setStatus("Código PIX copiado!", "ok"))
       .catch(() => setStatus("Erro ao copiar PIX", "err"));
   }
+
+  document.getElementById("confirmarPixBtn")?.addEventListener("click", consultarStatusPix);
 
   loadCart();
   if (dinheiroBox && pagamento){
